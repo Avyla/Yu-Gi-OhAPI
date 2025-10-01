@@ -9,10 +9,21 @@ import org.LeetCode.model.Card;
 import org.LeetCode.util.ImageCache;
 
 import javax.swing.*;
+import javax.swing.border.Border;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.util.List;
 
 public class DuelFrame extends JFrame {
+
+    // --- Tamaños fijos ---
+    private static final int BUTTON_W = 160;   // miniatura
+    private static final int BUTTON_H = 230;
+    private static final int PREVIEW_W = 360;  // carta grande
+    private static final int PREVIEW_H = 520;
 
     // Servicios / estado
     private final YgoApiClient api = new YgoApiClient();
@@ -20,16 +31,30 @@ public class DuelFrame extends JFrame {
     private Duel duel;
     private Player human;
     private Player cpu;
+    private int roundCounter = 1;
 
-    // UI
+    // UI raíz
     private final JButton btnNewDuel = new JButton("Nuevo duelo");
     private final JLabel lblScore = new JLabel("Marcador: Jugador 0 - 0 CPU");
     private final JLabel lblStatus = new JLabel("Listo.");
-    private final JPanel panelHand = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
-    private final JLabel lblPlayerCard = new JLabel(); // carta grande jugador
-    private final JLabel lblCpuCard = new JLabel();    // carta grande CPU
 
-    // Para deshabilitar entradas mientras carga o resuelve ronda
+    // Mano jugador (columna con scroll)
+    private final JPanel panelHand = new JPanel();
+    private final JScrollPane handScroll = new JScrollPane(panelHand);
+
+    // Arena: dos cartas grandes + “VS”
+    private final JLabel lblPlayerCard = new JLabel();
+    private final JLabel lblCpuCard = new JLabel();
+    private final JLabel lblVs = new JLabel("VS", SwingConstants.CENTER);
+
+    // Historial de rondas (derecha)
+    private final DefaultListModel<String> historyModel = new DefaultListModel<>();
+    private final JList<String> historyList = new JList<>(historyModel);
+
+    // Bordes (para resaltar ganador)
+    private TitledBorder tBorderPlayer = BorderFactory.createTitledBorder("Jugador");
+    private TitledBorder tBorderCpu = BorderFactory.createTitledBorder("CPU");
+
     private boolean inputLocked = false;
 
     public DuelFrame() {
@@ -38,58 +63,104 @@ public class DuelFrame extends JFrame {
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setLayout(new BorderLayout(10, 10));
 
-        // TOP: controles + marcador
+        // ---------- TOP ----------
         JPanel top = new JPanel(new BorderLayout(10, 10));
         top.add(btnNewDuel, BorderLayout.WEST);
         lblScore.setHorizontalAlignment(SwingConstants.CENTER);
         top.add(lblScore, BorderLayout.CENTER);
         add(top, BorderLayout.NORTH);
 
-        // CENTER: arena (dos cartas grandes)
-        JPanel arena = new JPanel(new GridLayout(1, 2, 10, 10));
-        lblPlayerCard.setHorizontalAlignment(SwingConstants.CENTER);
-        lblCpuCard.setHorizontalAlignment(SwingConstants.CENTER);
-        lblPlayerCard.setBorder(BorderFactory.createTitledBorder("Jugador"));
-        lblCpuCard.setBorder(BorderFactory.createTitledBorder("CPU"));
-        arena.add(lblPlayerCard);
-        arena.add(lblCpuCard);
+        // ---------- WEST: Mano del jugador (columna con tamaños fijos) ----------
+        panelHand.setLayout(new BoxLayout(panelHand, BoxLayout.Y_AXIS));
+        panelHand.setBorder(BorderFactory.createTitledBorder("Tu mano"));
+        handScroll.setBorder(null);
+        handScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        handScroll.setPreferredSize(new Dimension(BUTTON_W + 40, 0));
+        add(handScroll, BorderLayout.WEST);
+
+        // ---------- CENTER: Arena fija ----------
+        JPanel arena = new JPanel(new GridBagLayout());
         add(arena, BorderLayout.CENTER);
 
-        // BOTTOM: mano del jugador + status
+        // Labels de cartas con tamaño fijo
+        fixLabelSize(lblPlayerCard, PREVIEW_W, PREVIEW_H);
+        fixLabelSize(lblCpuCard, PREVIEW_W, PREVIEW_H);
+        lblPlayerCard.setHorizontalAlignment(SwingConstants.CENTER);
+        lblCpuCard.setHorizontalAlignment(SwingConstants.CENTER);
+        resetCardBorders();
+
+        // “VS” fijo
+        lblVs.setFont(lblVs.getFont().deriveFont(Font.BOLD, 36f));
+        lblVs.setForeground(new Color(90, 90, 100));
+        fixLabelSize(lblVs, 60, PREVIEW_H);
+
+        // Posicionar: [Jugador] [VS] [CPU]
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.gridy = 0; gc.insets = new Insets(5, 5, 5, 5);
+
+        gc.gridx = 0; arena.add(lblPlayerCard, gc);
+        gc.gridx = 1; arena.add(lblVs, gc);
+        gc.gridx = 2; arena.add(lblCpuCard, gc);
+
+        // ---------- EAST: Historial ----------
+        JPanel east = new JPanel(new BorderLayout(6, 6));
+        JLabel lblHist = new JLabel("Historial de rondas", SwingConstants.CENTER);
+        east.add(lblHist, BorderLayout.NORTH);
+        historyList.setVisibleRowCount(14);
+        historyList.setFont(historyList.getFont().deriveFont(Font.PLAIN, 12f));
+        east.add(new JScrollPane(historyList), BorderLayout.CENTER);
+        east.setPreferredSize(new Dimension(300, 0));
+        add(east, BorderLayout.EAST);
+
+        // ---------- SOUTH: Status ----------
         JPanel bottom = new JPanel(new BorderLayout(10, 10));
-        bottom.add(panelHand, BorderLayout.CENTER);
         lblStatus.setHorizontalAlignment(SwingConstants.CENTER);
-        bottom.add(lblStatus, BorderLayout.SOUTH);
+        bottom.add(lblStatus, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
         // Acción: Nuevo duelo
         btnNewDuel.addActionListener(e -> startNewDuel());
 
-        setMinimumSize(new Dimension(900, 700));
+        // Tamaño de ventana recomendado (no se estira, pero puedes permitir resize si quieres)
+        setMinimumSize(new Dimension(1220, 760));
         setLocationRelativeTo(null);
+        // setResizable(false); // Descomenta si prefieres impedir redimensionar
+
         startNewDuel();
     }
 
-    /** Inicia/reinicia un duelo: trae 6 monsters, reparte y arma la mano (en background). */
+    /** Tamaños fijos para un JLabel (mín/preferida/máx) */
+    private static void fixLabelSize(JComponent c, int w, int h) {
+        Dimension d = new Dimension(w, h);
+        c.setMinimumSize(d);
+        c.setPreferredSize(d);
+        c.setMaximumSize(d);
+    }
+
+    /** Inicia/reinicia un duelo: reparte y arma la mano en background. */
     private void startNewDuel() {
         if (inputLocked) return;
         lockInput(true);
         setStatus("Repartiendo cartas...");
+        historyModel.clear();
+        roundCounter = 1;
+
         lblPlayerCard.setIcon(null);
         lblPlayerCard.setText("");
-        lblCpuCard.setIcon(null);
-        lblCpuCard.setText("");
+        setCpuBack();
 
         panelHand.removeAll();
+        panelHand.add(space(0,8));
         panelHand.add(new JLabel("Cargando..."));
+        panelHand.add(space(0,8));
         panelHand.revalidate();
         panelHand.repaint();
 
-        // Carga en background para no bloquear el EDT
+        resetCardBorders();
+
         SwingWorker<List<Card>, Void> worker = new SwingWorker<>() {
             @Override
             protected List<Card> doInBackground() throws Exception {
-                // 6 monsters con fast path
                 return api.fetchMonstersFast(6, 120, 0, 500, 1000, 1500);
             }
 
@@ -97,7 +168,6 @@ public class DuelFrame extends JFrame {
             protected void done() {
                 try {
                     List<Card> six = get();
-                    // Crear jugadores nuevos para resetear marcador
                     human = new Player("Jugador");
                     cpu   = new Player("CPU");
                     duel  = new Duel(human, cpu);
@@ -121,9 +191,10 @@ public class DuelFrame extends JFrame {
         worker.execute();
     }
 
-    /** Crea los 3 botones con miniaturas de la mano del jugador. */
+    /** Crea los 3 botones de la mano del jugador en columna, con tamaños fijos. */
     private void buildHandButtons() {
         panelHand.removeAll();
+        panelHand.add(space(0,8));
 
         for (int i = 0; i < human.getHand().size(); i++) {
             final int idx = i;
@@ -133,27 +204,27 @@ public class DuelFrame extends JFrame {
             btn.setVerticalTextPosition(SwingConstants.BOTTOM);
             btn.setHorizontalTextPosition(SwingConstants.CENTER);
             btn.setToolTipText(statLine(c));
-
-            // Carga de icono en background (para no congelar)
             btn.setEnabled(false);
+
+            // Tamaño fijo del botón (incluye icono + texto)
+            fixLabelSize(btn, BUTTON_W, BUTTON_H + 48);
+
             btn.addActionListener(e -> onPlayerChoose(idx));
-
             panelHand.add(btn);
+            panelHand.add(space(0,8));
 
+            // Carga de miniatura en background
             SwingWorker<ImageIcon, Void> iconLoader = new SwingWorker<>() {
                 @Override
                 protected ImageIcon doInBackground() throws Exception {
                     String url = imageUrlForButton(c);
-                    return imageCache.getIcon(url, 180, 260); // miniatura
+                    return imageCache.getIcon(url, BUTTON_W, BUTTON_H);
                 }
-
                 @Override
                 protected void done() {
                     try {
-                        ImageIcon icon = get();
-                        btn.setIcon(icon);
+                        btn.setIcon(get());
                     } catch (Exception ignored) {
-                        // Si falla la imagen, dejamos solo el texto
                     } finally {
                         btn.setEnabled(true);
                     }
@@ -162,17 +233,21 @@ public class DuelFrame extends JFrame {
             iconLoader.execute();
         }
 
+        // Relleno para empujar hacia arriba si sobra espacio
+        panelHand.add(Box.createVerticalGlue());
+
         panelHand.revalidate();
         panelHand.repaint();
     }
 
-    /** Cuando el jugador elige una carta (índice en su mano). */
+    /** Al elegir una carta. */
     private void onPlayerChoose(int playerIndex) {
         if (inputLocked || duel == null || duel.isOver()) return;
         lockInput(true);
         setStatus("Resolviendo ronda...");
+        resetCardBorders();
+        setCpuBack();
 
-        // Jugar y actualizar UI
         SwingWorker<RoundResult, Void> roundWorker = new SwingWorker<>() {
             @Override
             protected RoundResult doInBackground() {
@@ -184,30 +259,36 @@ public class DuelFrame extends JFrame {
                 try {
                     RoundResult rr = get();
 
-                    // Mostrar cartas grandes en la arena
                     setCardPreview(lblPlayerCard, rr.playerCard);
                     setCardPreview(lblCpuCard, rr.cpuCard);
 
-                    // Actualizar marcador
                     updateScore();
 
-                    // Reconstruir mano (quitar la carta usada)
+                    String hist = String.format(
+                            "R%d: %s vs %s → %s (%s)",
+                            roundCounter,
+                            rr.playerCard.name,
+                            rr.cpuCard.name,
+                            rr.winner == Winner.PLAYER ? "Jugador" : "CPU",
+                            rr.reason
+                    );
+                    historyModel.addElement(hist);
+                    roundCounter++;
+
                     buildHandButtons();
 
-                    // Mensaje
                     String msg = (rr.winner == Winner.PLAYER ? "Ganaste la ronda. " : "La CPU ganó la ronda. ")
                             + rr.reason;
                     setStatus(msg);
 
-                    // ¿Fin del duelo?
+                    highlightWinner(rr.winner);
+
                     if (duel.isOver()) {
                         Winner mw = duel.getMatchWinnerOrNull();
                         if (mw == Winner.PLAYER) {
                             setStatus("🏆 ¡Has ganado el duelo best-of-3! Pulsa 'Nuevo duelo' para jugar otra vez.");
                         } else if (mw == Winner.CPU) {
                             setStatus("🤖 La CPU ganó el duelo best-of-3. Pulsa 'Nuevo duelo' para reintentar.");
-                        } else {
-                            setStatus("Duelo finalizado.");
                         }
                         // Deshabilitar mano
                         for (Component comp : panelHand.getComponents()) {
@@ -228,13 +309,8 @@ public class DuelFrame extends JFrame {
 
     // ------------------------ Helpers UI ------------------------
 
-    private void setStatus(String text) {
-        lblStatus.setText(text);
-    }
-
-    private void updateScore() {
-        lblScore.setText("Marcador: Jugador " + human.getWins() + " - " + cpu.getWins() + " CPU");
-    }
+    private void setStatus(String text) { lblStatus.setText(text); }
+    private void updateScore() { lblScore.setText("Marcador: Jugador " + human.getWins() + " - " + cpu.getWins() + " CPU"); }
 
     private void lockInput(boolean lock) {
         inputLocked = lock;
@@ -249,14 +325,12 @@ public class DuelFrame extends JFrame {
         label.setIcon(null);
         if (c == null) return;
 
-        // Carga en background para no bloquear
         SwingWorker<ImageIcon, Void> w = new SwingWorker<>() {
             @Override
             protected ImageIcon doInBackground() throws Exception {
                 String url = imageUrlForPreview(c);
-                return imageCache.getIcon(url, 360, 520); // grande
+                return imageCache.getIcon(url, PREVIEW_W, PREVIEW_H);
             }
-
             @Override
             protected void done() {
                 try {
@@ -275,7 +349,7 @@ public class DuelFrame extends JFrame {
             if (ci.image_url_small != null && !ci.image_url_small.isBlank()) return ci.image_url_small;
             if (ci.image_url != null && !ci.image_url.isBlank()) return ci.image_url;
         }
-        return ""; // dejará solo texto si no hay imagen
+        return "";
     }
 
     private static String imageUrlForPreview(Card c) {
@@ -298,5 +372,59 @@ public class DuelFrame extends JFrame {
 
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    // --------- Dorso CPU y bordes de ganador ---------
+
+    private void setCpuBack() {
+        lblCpuCard.setText("");
+        lblCpuCard.setIcon(makeCardBackIcon("CPU", PREVIEW_W, PREVIEW_H));
+    }
+
+    private static ImageIcon makeCardBackIcon(String text, int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setPaint(new GradientPaint(0, 0, new Color(22, 26, 34), w, h, new Color(44, 54, 73)));
+            g.fillRoundRect(0, 0, w, h, 28, 28);
+
+            g.setColor(new Color(200, 200, 210));
+            g.setStroke(new BasicStroke(3f));
+            g.drawRoundRect(4, 4, w - 8, h - 8, 24, 24);
+
+            g.setFont(new Font("SansSerif", Font.BOLD, 36));
+            FontMetrics fm = g.getFontMetrics();
+            int tw = fm.stringWidth(text);
+            int th = fm.getAscent();
+            g.setColor(new Color(235, 235, 245));
+            g.drawString(text, (w - tw) / 2, (h + th) / 2 - 8);
+        } finally {
+            g.dispose();
+        }
+        return new ImageIcon(img);
+    }
+
+    private void resetCardBorders() {
+        Border outer = new LineBorder(new Color(180, 180, 185), 1, true);
+        lblPlayerCard.setBorder(new CompoundBorder(outer, tBorderPlayer));
+        lblCpuCard.setBorder(new CompoundBorder(outer, tBorderCpu));
+    }
+
+    private void highlightWinner(Winner w) {
+        Border win = new LineBorder(new Color(46, 204, 113), 3, true); // verde
+        Border lose = new LineBorder(new Color(180, 180, 185), 1, true);
+        if (w == Winner.PLAYER) {
+            lblPlayerCard.setBorder(new CompoundBorder(win, tBorderPlayer));
+            lblCpuCard.setBorder(new CompoundBorder(lose, tBorderCpu));
+        } else {
+            lblPlayerCard.setBorder(new CompoundBorder(lose, tBorderPlayer));
+            lblCpuCard.setBorder(new CompoundBorder(win, tBorderCpu));
+        }
+    }
+
+    // Pequeño separador vertical
+    private static Component space(int w, int h) {
+        return Box.createRigidArea(new Dimension(w, h));
     }
 }
