@@ -14,8 +14,7 @@ import javax.swing.border.CompoundBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.util.List;
 
@@ -35,23 +34,26 @@ public class DuelFrame extends JFrame {
     private Player cpu;
     private int roundCounter = 1;
 
-    // Para resaltar ganador con color por atributo
+    // Últimas cartas para bordes por atributo
     private Card lastPlayerCard = null;
     private Card lastCpuCard = null;
 
     // UI raíz
-    private final JButton btnNewDuel = new JButton("Nuevo duelo");
+    private final JButton btnNewDuel = new JButton("Nuevo duelo (N)");
     private final JLabel lblScore = new JLabel("Marcador: Jugador 0 - 0 CPU");
     private final JLabel lblStatus = new JLabel("Listo.");
+    private final MatchPipsPanel pips = new MatchPipsPanel();
 
     // Mano jugador (columna con scroll)
     private final JPanel panelHand = new JPanel();
     private final JScrollPane handScroll = new JScrollPane(panelHand);
 
-    // Arena: dos cartas grandes + “VS”
+    // Arena: metadatos arriba, dos cartas grandes, chips abajo y VS “neón”
+    private final JLabel lblPlayerMeta = new JLabel("—");
+    private final JLabel lblCpuMeta = new JLabel("—");
     private final JLabel lblPlayerCard = new JLabel();
     private final JLabel lblCpuCard = new JLabel();
-    private final JLabel lblVs = new JLabel("VS", SwingConstants.CENTER);
+    private final NeonLabel lblVs = new NeonLabel("VS");
 
     // Chips de stats bajo cada carta
     private final StatsPanel playerChips = new StatsPanel();
@@ -80,17 +82,27 @@ public class DuelFrame extends JFrame {
         setLayout(new BorderLayout(10, 10));
         Theme.styleRoot(this);
 
-        // ---------- TOP ----------
-        JPanel top = new JPanel(new BorderLayout(10, 10));
+        // ---------- TOP: gradiente + marcador + pips ----------
+        JPanel top = new GradientTopBar();
+        top.setLayout(new BorderLayout(10, 10));
         Theme.stylePanel(top);
-        top.add(btnNewDuel, BorderLayout.WEST);
-        lblScore.setHorizontalAlignment(SwingConstants.CENTER);
-        Theme.styleTitle(lblScore);
-        top.add(lblScore, BorderLayout.CENTER);
-        add(top, BorderLayout.NORTH);
-
-        // Botón "pill"
+        btnNewDuel.setToolTipText("Comenzar un nuevo duelo (atajo: N)");
         styleButton(btnNewDuel, Theme.ACCENT_INFO);
+        top.add(btnNewDuel, BorderLayout.WEST);
+
+        JPanel topCenter = new JPanel();
+        topCenter.setOpaque(false);
+        topCenter.setLayout(new BoxLayout(topCenter, BoxLayout.Y_AXIS));
+        lblScore.setAlignmentX(Component.CENTER_ALIGNMENT);
+        Theme.styleTitle(lblScore);
+        topCenter.add(Box.createVerticalStrut(4));
+        topCenter.add(lblScore);
+        pips.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topCenter.add(Box.createVerticalStrut(4));
+        topCenter.add(pips);
+        topCenter.add(Box.createVerticalStrut(2));
+        top.add(topCenter, BorderLayout.CENTER);
+        add(top, BorderLayout.NORTH);
 
         // ---------- WEST: Mano del jugador (columna con tamaños fijos) ----------
         panelHand.setLayout(new BoxLayout(panelHand, BoxLayout.Y_AXIS));
@@ -107,6 +119,12 @@ public class DuelFrame extends JFrame {
         Theme.stylePanel(arena);
         add(arena, BorderLayout.CENTER);
 
+        // Metadatos (ATTRIBUTE / TYPE)
+        Theme.styleTitle(lblPlayerMeta);
+        Theme.styleTitle(lblCpuMeta);
+        lblPlayerMeta.setForeground(Theme.FG_MUTED);
+        lblCpuMeta.setForeground(Theme.FG_MUTED);
+
         // Labels de cartas con tamaño fijo
         fixSize(lblPlayerCard, PREVIEW_W, PREVIEW_H);
         fixSize(lblCpuCard, PREVIEW_W, PREVIEW_H);
@@ -114,22 +132,27 @@ public class DuelFrame extends JFrame {
         lblCpuCard.setHorizontalAlignment(SwingConstants.CENTER);
         resetCardBorders();
 
-        // “VS” mejorado
+        // “VS” con efecto neón
         lblVs.setFont(lblVs.getFont().deriveFont(Font.BOLD, 40f));
-        lblVs.setForeground(new Color(200, 210, 255));
-        fixSize(lblVs, 60, PREVIEW_H);
+        lblVs.setForeground(new Color(230, 235, 255));
+        fixSize(lblVs, 80, PREVIEW_H);
 
-        // Posicionar: [Jugador] [VS] [CPU]  (fila 0)  y chips en fila 1
+        // Posicionar grilla:
+        // fila -1: metadatos | fila 0: imágenes | fila 1: chips
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(5, 5, 5, 5);
 
-        gc.gridy = 0; gc.gridx = 0; arena.add(lblPlayerCard, gc);
-        gc.gridy = 0; gc.gridx = 1; arena.add(lblVs, gc);
-        gc.gridy = 0; gc.gridx = 2; arena.add(lblCpuCard, gc);
+        gc.gridy = 0; gc.gridx = 0; arena.add(lblPlayerMeta, gc);
+        gc.gridy = 0; gc.gridx = 1; arena.add(Box.createRigidArea(new Dimension(80, 1)), gc);
+        gc.gridy = 0; gc.gridx = 2; arena.add(lblCpuMeta, gc);
 
-        gc.gridy = 1; gc.gridx = 0; arena.add(playerChips, gc);
-        gc.gridy = 1; gc.gridx = 1; arena.add(Box.createRigidArea(new Dimension(60, 1)), gc);
-        gc.gridy = 1; gc.gridx = 2; arena.add(cpuChips, gc);
+        gc.gridy = 1; gc.gridx = 0; arena.add(lblPlayerCard, gc);
+        gc.gridy = 1; gc.gridx = 1; arena.add(lblVs, gc);
+        gc.gridy = 1; gc.gridx = 2; arena.add(lblCpuCard, gc);
+
+        gc.gridy = 2; gc.gridx = 0; arena.add(playerChips, gc);
+        gc.gridy = 2; gc.gridx = 1; arena.add(Box.createRigidArea(new Dimension(60, 1)), gc);
+        gc.gridy = 2; gc.gridx = 2; arena.add(cpuChips, gc);
 
         // ---------- EAST: Historial ----------
         JPanel east = new JPanel(new BorderLayout(6, 6));
@@ -153,16 +176,16 @@ public class DuelFrame extends JFrame {
         bottom.add(lblStatus, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
-        // Acción: Nuevo duelo
+        // Acciones / accesos rápidos
         btnNewDuel.addActionListener(e -> startNewDuel());
+        installHotkeys();
 
         // GlassPane para overlay del banner
         setGlassPane(banner);
         banner.setVisible(false); // solo cuando hay mensaje
 
-        setMinimumSize(new Dimension(1220, 760));
+        setMinimumSize(new Dimension(1240, 780));
         setLocationRelativeTo(null);
-        // setResizable(false); // opcional
         startNewDuel();
     }
 
@@ -172,6 +195,32 @@ public class DuelFrame extends JFrame {
         c.setMinimumSize(d);
         c.setPreferredSize(d);
         c.setMaximumSize(d);
+    }
+
+    /** Accesos rápidos: N = nuevo duelo; 1/2/3 = jugar carta idx */
+    private void installHotkeys() {
+        JRootPane rp = getRootPane();
+        InputMap im = rp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = rp.getActionMap();
+
+        im.put(KeyStroke.getKeyStroke('N'), "new"); // N
+        am.put("new", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { btnNewDuel.doClick(); }
+        });
+
+        for (int k = 1; k <= 3; k++) {
+            final int idx = k - 1;
+            im.put(KeyStroke.getKeyStroke((char)('0' + k)), "play" + k);
+            am.put("play" + k, new AbstractAction() {
+                @Override public void actionPerformed(ActionEvent e) { onHotkeyPlay(idx); }
+            });
+        }
+    }
+
+    private void onHotkeyPlay(int idx) {
+        if (human != null && duel != null && !duel.isOver() && idx < human.getHand().size()) {
+            onPlayerChoose(idx);
+        }
     }
 
     /** Inicia/reinicia un duelo: reparte y arma la mano en background. */
@@ -187,10 +236,13 @@ public class DuelFrame extends JFrame {
 
         lblPlayerCard.setIcon(null);
         lblPlayerCard.setText("");
+        lblPlayerMeta.setText("—");
+        lblCpuMeta.setText("—");
         setCpuBack();
 
         playerChips.updateFor(new Card());
         cpuChips.updateFor(new Card());
+        pips.setScores(0, 0);
 
         panelHand.removeAll();
         panelHand.add(space(0,8));
@@ -218,6 +270,7 @@ public class DuelFrame extends JFrame {
                     duel.dealHands(six);
 
                     updateScore();
+                    pips.setScores(human.getWins(), cpu.getWins());
                     buildHandButtons();
                     setStatus("Elige una carta para jugar la ronda.");
                 } catch (Exception ex) {
@@ -235,7 +288,7 @@ public class DuelFrame extends JFrame {
         worker.execute();
     }
 
-    /** Crea los 3 botones de la mano del jugador en columna, con tamaños fijos y estilo pill. */
+    /** Crea los 3 botones de la mano en columna, con tamaños fijos, estilo pill y foco visible. */
     private void buildHandButtons() {
         panelHand.removeAll();
         panelHand.add(space(0,8));
@@ -247,16 +300,16 @@ public class DuelFrame extends JFrame {
             JButton btn = new JButton("<html><center>" + escape(c.name) + "</center></html>");
             btn.setVerticalTextPosition(SwingConstants.BOTTOM);
             btn.setHorizontalTextPosition(SwingConstants.CENTER);
-            btn.setToolTipText(statLine(c));
+            btn.setToolTipText(statLine(c) + "  (atajo: " + (i+1) + ")");
             btn.setEnabled(false);
             fixSize(btn, BUTTON_W, BUTTON_H + 48);
-            styleButton(btn, null); // estilo normal
+            styleButton(btn, null); // estilo normal (hover + foco)
 
             btn.addActionListener(e -> onPlayerChoose(idx));
             panelHand.add(btn);
             panelHand.add(space(0,8));
 
-            // Carga de miniatura en background
+            // Carga miniatura en background
             SwingWorker<ImageIcon, Void> iconLoader = new SwingWorker<>() {
                 @Override
                 protected ImageIcon doInBackground() throws Exception {
@@ -283,7 +336,7 @@ public class DuelFrame extends JFrame {
         panelHand.repaint();
     }
 
-    /** Al elegir una carta. */
+    /** Al elegir una carta. Incluye delay para revelar la CPU y banners. */
     private void onPlayerChoose(int playerIndex) {
         if (inputLocked || duel == null || duel.isOver()) return;
         lockInput(true);
@@ -302,63 +355,76 @@ public class DuelFrame extends JFrame {
                 try {
                     RoundResult rr = get();
 
-                    // Recordar últimas cartas para bordes por atributo
+                    // Guardar para bordes por atributo
                     lastPlayerCard = rr.playerCard;
                     lastCpuCard = rr.cpuCard;
 
-                    // Mostrar cartas e indicadores
+                    // Mostrar carta del jugador ya
                     setCardPreview(lblPlayerCard, rr.playerCard, true);
-                    setCardPreview(lblCpuCard, rr.cpuCard, false);
 
-                    updateScore();
+                    // Pequeño delay para revelar CPU (game feel)
+                    new javax.swing.Timer(400, ev -> {
+                        ((javax.swing.Timer) ev.getSource()).stop();
 
-                    String hist = String.format(
-                            "R%d: %s vs %s → %s (%s)",
-                            roundCounter,
-                            rr.playerCard.name,
-                            rr.cpuCard.name,
-                            rr.winner == Winner.PLAYER ? "Jugador" : "CPU",
-                            rr.reason
-                    );
-                    historyModel.addElement(hist);
-                    roundCounter++;
+                        setCardPreview(lblCpuCard, rr.cpuCard, false);
 
-                    buildHandButtons();
+                        updateScore();
+                        pips.setScores(human.getWins(), cpu.getWins());
 
-                    String msg = (rr.winner == Winner.PLAYER ? "Ganaste la ronda." : "La CPU ganó la ronda.")
-                            + " " + rr.reason;
-                    setStatus(msg);
-                    flashStatus(rr.winner == Winner.PLAYER);
+                        String hist = String.format(
+                                "R%d: %s vs %s → %s (%s)",
+                                roundCounter,
+                                rr.playerCard.name,
+                                rr.cpuCard.name,
+                                rr.winner == Winner.PLAYER ? "Jugador" : "CPU",
+                                rr.reason
+                        );
+                        historyModel.addElement(hist);
+                        roundCounter++;
 
-                    // Resaltar ganador con color por atributo
-                    highlightWinner(rr.winner);
+                        buildHandButtons();
 
-                    // Banner de RONDA
-                    showRoundBanner(rr.winner, rr.reason);
+                        String msg = (rr.winner == Winner.PLAYER ? "Ganaste la ronda." : "La CPU ganó la ronda.")
+                                + " " + rr.reason;
+                        setStatus(msg);
+                        flashStatus(rr.winner == Winner.PLAYER);
 
-                    if (duel.isOver()) {
-                        Winner mw = duel.getMatchWinnerOrNull();
-                        if (mw == Winner.PLAYER) {
-                            setStatus("🏆 ¡Has ganado el duelo best-of-3! Pulsa 'Nuevo duelo' para jugar otra vez.");
-                        } else if (mw == Winner.CPU) {
-                            setStatus("🤖 La CPU ganó el duelo best-of-3. Pulsa 'Nuevo duelo' para reintentar.");
-                        } else {
-                            setStatus("Duelo finalizado.");
+                        // Beep simple al ganar
+                        if (rr.winner == Winner.PLAYER) {
+                            Toolkit.getDefaultToolkit().beep();
                         }
 
-                        // Banner de COMBATE (con dim del fondo)
-                        showMatchBanner(mw);
+                        // Resaltar ganador con color por atributo
+                        highlightWinner(rr.winner);
 
-                        // Deshabilitar mano
-                        for (Component comp : panelHand.getComponents()) {
-                            if (comp instanceof JButton) comp.setEnabled(false);
+                        // Banner de RONDA
+                        showRoundBanner(rr.winner, rr.reason);
+
+                        if (duel.isOver()) {
+                            Winner mw = duel.getMatchWinnerOrNull();
+                            if (mw == Winner.PLAYER) {
+                                setStatus("🏆 ¡Has ganado el duelo best-of-3! Pulsa 'Nuevo duelo' para jugar otra vez.");
+                            } else if (mw == Winner.CPU) {
+                                setStatus("🤖 La CPU ganó el duelo best-of-3. Pulsa 'Nuevo duelo' para reintentar.");
+                            } else {
+                                setStatus("Duelo finalizado.");
+                            }
+
+                            // Banner de COMBATE (con dim del fondo)
+                            showMatchBanner(mw);
+
+                            // Deshabilitar mano
+                            for (Component comp : panelHand.getComponents()) {
+                                if (comp instanceof JButton) comp.setEnabled(false);
+                            }
                         }
-                    }
+
+                        lockInput(false);
+                    }).start();
 
                 } catch (Exception ex) {
                     showError("Error al jugar la ronda.\n" + ex.getMessage());
                     setStatus("Error en la ronda.");
-                } finally {
                     lockInput(false);
                 }
             }
@@ -400,12 +466,24 @@ public class DuelFrame extends JFrame {
                 } catch (Exception e) {
                     label.setText("<html><center>" + escape(c.name) + "<br/>(sin imagen)</center></html>");
                 } finally {
-                    // Actualizar chips
-                    if (isPlayer) playerChips.updateFor(c); else cpuChips.updateFor(c);
+                    // Actualizar chips y metadatos
+                    if (isPlayer) {
+                        playerChips.updateFor(c);
+                        lblPlayerMeta.setText(metaText(c));
+                    } else {
+                        cpuChips.updateFor(c);
+                        lblCpuMeta.setText(metaText(c));
+                    }
                 }
             }
         };
         w.execute();
+    }
+
+    private static String metaText(Card c) {
+        String attr = c.attribute != null ? c.attribute : "—";
+        String type = c.type != null ? c.type : "—";
+        return attr + " / " + type;
     }
 
     private static String imageUrlForButton(Card c) {
@@ -449,12 +527,25 @@ public class DuelFrame extends JFrame {
         btn.setBorder(new LineBorder(borderColor, accent != null ? 2 : 1, true));
         btn.setOpaque(true);
 
+        // Hover notorio
         btn.getModel().addChangeListener(e -> {
             ButtonModel m = (ButtonModel) e.getSource();
-            if (m.isRollover() && btn.isEnabled()) {
+            if (m.isPressed() && btn.isEnabled()) {
+                btn.setBackground(new Color(55, 61, 72));
+            } else if (m.isRollover() && btn.isEnabled()) {
                 btn.setBackground(new Color(52, 58, 68));
             } else {
                 btn.setBackground(new Color(42, 48, 58));
+            }
+        });
+
+        // Foco accesible (borde acentuado)
+        btn.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) {
+                btn.setBorder(new LineBorder(Theme.ACCENT_INFO, 2, true));
+            }
+            @Override public void focusLost(FocusEvent e) {
+                btn.setBorder(new LineBorder(borderColor, accent != null ? 2 : 1, true));
             }
         });
     }
@@ -474,6 +565,7 @@ public class DuelFrame extends JFrame {
         lblCpuCard.setText("");
         lblCpuCard.setIcon(makeCardBackIcon("CPU", PREVIEW_W, PREVIEW_H));
         cpuChips.updateFor(new Card());
+        lblCpuMeta.setText("—");
     }
 
     private static ImageIcon makeCardBackIcon(String text, int w, int h) {
@@ -517,7 +609,6 @@ public class DuelFrame extends JFrame {
     }
 
     private void highlightWinner(Winner w) {
-        // Usa las últimas cartas mostradas
         applyAttributeBorder(lblPlayerCard, lastPlayerCard, w == Winner.PLAYER);
         applyAttributeBorder(lblCpuCard, lastCpuCard, w == Winner.CPU);
     }
@@ -680,13 +771,123 @@ public class DuelFrame extends JFrame {
         }
     }
 
-    /** Muestra el banner redondeado con fade para el ganador de la ronda. */
+    /** Muestra el banner de ronda. */
     private void showRoundBanner(Winner w, String reason) {
         banner.showRoundResult(w, reason);
     }
-
-    /** Muestra el banner de victoria del combate (dim de fondo + tipografía mayor). */
+    /** Muestra el banner de victoria del combate. */
     private void showMatchBanner(Winner w) {
         banner.showMatchResult(w);
     }
+
+    // ======================= COMPONENTES LIGEROS =======================
+
+    /** Barra superior con gradiente horizontal sutil. */
+    private static class GradientTopBar extends JPanel {
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                int w = getWidth(), h = getHeight();
+                GradientPaint gp = new GradientPaint(0, 0, new Color(26, 31, 40),
+                        w, h, new Color(18, 22, 28));
+                g2.setPaint(gp);
+                g2.fillRect(0, 0, w, h);
+            } finally { g2.dispose(); }
+        }
+    }
+
+    /** Etiqueta con glow simple (varias pasadas) para el “VS”. */
+    private static class NeonLabel extends JLabel {
+        public NeonLabel(String text) { super(text, SwingConstants.CENTER); setOpaque(false); }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                String s = getText();
+                Font f = getFont();
+                g2.setFont(f);
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth() - fm.stringWidth(s)) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+
+                // Glow (varias pasadas con alpha)
+                for (int r = 5; r >= 1; r--) {
+                    float a = 0.08f * r;
+                    g2.setColor(new Color(120, 150, 255, Math.min(255, (int)(255*a))));
+                    g2.drawString(s, x, y);
+                }
+                // Texto principal
+                g2.setColor(getForeground());
+                g2.drawString(s, x, y);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    /** Pips de progreso del match (centrados horizontal y verticalmente). */
+    private static class MatchPipsPanel extends JComponent {
+        private int pw = 0, cw = 0;     // wins jugador / cpu
+        private final int dots = 3;     // cantidad de pips por fila
+        private int r = 8;              // radio (se ajusta con la altura)
+        private int gap = 14;           // separación horizontal entre pips
+        private int rowGap = 10;        // separación vertical entre filas
+
+        void setScores(int pWins, int cWins) {
+            this.pw = pWins;
+            this.cw = cWins;
+            repaint();
+        }
+
+        @Override public Dimension getPreferredSize() { return new Dimension(220, 36); }
+        @Override public Dimension getMinimumSize() { return new Dimension(160, 28); }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int W = getWidth(), H = getHeight();
+
+                // Ajusta radio según altura disponible (clamp entre 6 y 10)
+                int maxDotHeight = (H - rowGap) / 2;       // alto disponible por fila
+                int newR = Math.max(6, Math.min(10, (maxDotHeight - 2) / 2));
+                r = newR;
+                int d = 2 * r;
+
+                // Ancho total de la hilera: N*diam + (N-1)*gap
+                int totalW = dots * d + (dots - 1) * gap;
+
+                // Centro horizontal
+                int baseX = (W - totalW) / 2;
+
+                // Centro vertical para dos filas
+                int totalH = d * 2 + rowGap;
+                int topY = (H - totalH) / 2;
+
+                // --- Fila Jugador (arriba) ---
+                int yPlayer = topY;
+                for (int i = 0; i < dots; i++) {
+                    int x = baseX + i * (d + gap);
+                    g2.setColor(i < pw ? Theme.ACCENT_OK : new Color(70, 80, 96));
+                    g2.fillOval(x, yPlayer, d, d);
+                }
+
+                // --- Fila CPU (abajo) ---
+                int yCpu = topY + d + rowGap;
+                for (int i = 0; i < dots; i++) {
+                    int x = baseX + i * (d + gap);
+                    g2.setColor(i < cw ? Theme.ACCENT_BAD : new Color(70, 80, 96));
+                    g2.fillOval(x, yCpu, d, d);
+                }
+
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
 }
