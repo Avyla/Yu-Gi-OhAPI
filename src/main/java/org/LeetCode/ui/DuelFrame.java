@@ -14,6 +14,8 @@ import javax.swing.border.CompoundBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.util.List;
 
@@ -55,6 +57,9 @@ public class DuelFrame extends JFrame {
     private TitledBorder tBorderPlayer = BorderFactory.createTitledBorder("Jugador");
     private TitledBorder tBorderCpu = BorderFactory.createTitledBorder("CPU");
 
+    // Overlay de banner (glass pane)
+    private final RoundBannerOverlay banner = new RoundBannerOverlay();
+
     private boolean inputLocked = false;
 
     public DuelFrame() {
@@ -83,8 +88,8 @@ public class DuelFrame extends JFrame {
         add(arena, BorderLayout.CENTER);
 
         // Labels de cartas con tamaño fijo
-        fixLabelSize(lblPlayerCard, PREVIEW_W, PREVIEW_H);
-        fixLabelSize(lblCpuCard, PREVIEW_W, PREVIEW_H);
+        fixSize(lblPlayerCard, PREVIEW_W, PREVIEW_H);
+        fixSize(lblCpuCard, PREVIEW_W, PREVIEW_H);
         lblPlayerCard.setHorizontalAlignment(SwingConstants.CENTER);
         lblCpuCard.setHorizontalAlignment(SwingConstants.CENTER);
         resetCardBorders();
@@ -92,12 +97,11 @@ public class DuelFrame extends JFrame {
         // “VS” fijo
         lblVs.setFont(lblVs.getFont().deriveFont(Font.BOLD, 36f));
         lblVs.setForeground(new Color(90, 90, 100));
-        fixLabelSize(lblVs, 60, PREVIEW_H);
+        fixSize(lblVs, 60, PREVIEW_H);
 
         // Posicionar: [Jugador] [VS] [CPU]
         GridBagConstraints gc = new GridBagConstraints();
         gc.gridy = 0; gc.insets = new Insets(5, 5, 5, 5);
-
         gc.gridx = 0; arena.add(lblPlayerCard, gc);
         gc.gridx = 1; arena.add(lblVs, gc);
         gc.gridx = 2; arena.add(lblCpuCard, gc);
@@ -121,16 +125,18 @@ public class DuelFrame extends JFrame {
         // Acción: Nuevo duelo
         btnNewDuel.addActionListener(e -> startNewDuel());
 
-        // Tamaño de ventana recomendado (no se estira, pero puedes permitir resize si quieres)
+        // GlassPane para overlay del banner
+        setGlassPane(banner);
+        banner.setVisible(false); // se muestra solo cuando hay mensaje
+
         setMinimumSize(new Dimension(1220, 760));
         setLocationRelativeTo(null);
-        // setResizable(false); // Descomenta si prefieres impedir redimensionar
-
+        // setResizable(false); // opcional
         startNewDuel();
     }
 
-    /** Tamaños fijos para un JLabel (mín/preferida/máx) */
-    private static void fixLabelSize(JComponent c, int w, int h) {
+    /** Tamaños fijos para un componente (mín/preferida/máx) */
+    private static void fixSize(JComponent c, int w, int h) {
         Dimension d = new Dimension(w, h);
         c.setMinimumSize(d);
         c.setPreferredSize(d);
@@ -207,7 +213,7 @@ public class DuelFrame extends JFrame {
             btn.setEnabled(false);
 
             // Tamaño fijo del botón (incluye icono + texto)
-            fixLabelSize(btn, BUTTON_W, BUTTON_H + 48);
+            fixSize(btn, BUTTON_W, BUTTON_H + 48);
 
             btn.addActionListener(e -> onPlayerChoose(idx));
             panelHand.add(btn);
@@ -277,11 +283,14 @@ public class DuelFrame extends JFrame {
 
                     buildHandButtons();
 
-                    String msg = (rr.winner == Winner.PLAYER ? "Ganaste la ronda. " : "La CPU ganó la ronda. ")
-                            + rr.reason;
+                    String msg = (rr.winner == Winner.PLAYER ? "Ganaste la ronda." : "La CPU ganó la ronda.")
+                            + " " + rr.reason;
                     setStatus(msg);
 
                     highlightWinner(rr.winner);
+
+                    // === NUEVO: Banner grande superpuesto ===
+                    showRoundBanner(rr.winner, rr.reason);
 
                     if (duel.isOver()) {
                         Winner mw = duel.getMatchWinnerOrNull();
@@ -290,7 +299,6 @@ public class DuelFrame extends JFrame {
                         } else if (mw == Winner.CPU) {
                             setStatus("🤖 La CPU ganó el duelo best-of-3. Pulsa 'Nuevo duelo' para reintentar.");
                         }
-                        // Deshabilitar mano
                         for (Component comp : panelHand.getComponents()) {
                             if (comp instanceof JButton) comp.setEnabled(false);
                         }
@@ -426,5 +434,136 @@ public class DuelFrame extends JFrame {
     // Pequeño separador vertical
     private static Component space(int w, int h) {
         return Box.createRigidArea(new Dimension(w, h));
+    }
+
+    // ======================= OVERLAY DE BANNER =======================
+
+    /**
+     * GlassPane que pinta un banner central con fade-in/out.
+     * Uso: banner.showRoundResult("titulo", "subtitulo", colorPrincipal)
+     */
+    private class RoundBannerOverlay extends JComponent implements ActionListener {
+        private String title = "";
+        private String subtitle = "";
+        private Color main = new Color(46, 204, 113); // verde por defecto
+        private float alpha = 0f;
+        private int phase = 0; // 0=idle,1=in,2=hold,3=out
+        private final Timer timer = new Timer(16, this); // ~60 FPS
+
+        // tiempos en ms
+        private final int FADE_IN = 180;
+        private final int HOLD = 1050;
+        private final int FADE_OUT = 220;
+
+        private long t0;
+
+        RoundBannerOverlay() {
+            setOpaque(false);
+            setVisible(false);
+        }
+
+        void showRoundResult(Winner w, String reason) {
+            if (w == Winner.PLAYER) {
+                this.title = "¡Ronda para el Jugador!";
+                this.main = new Color(46, 204, 113);
+            } else {
+                this.title = "¡Ronda para la CPU!";
+                this.main = new Color(231, 76, 60);
+            }
+            this.subtitle = reason != null ? reason : "";
+            alpha = 0f; phase = 1; t0 = System.currentTimeMillis();
+            setVisible(true);
+            timer.start();
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (!isVisible()) return;
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int W = getWidth();
+                int H = getHeight();
+
+                // Fondo NO oscurecido para no “romper” la vista; solo banner central.
+                // Dibujar tarjeta central
+                int bw = 620;
+                int bh = 150;
+                int x = (W - bw) / 2;
+                int y = (H - bh) / 2;
+
+                // sombra suave
+                g2.setComposite(AlphaComposite.SrcOver.derive(0.20f * alpha));
+                g2.setColor(Color.BLACK);
+                g2.fillRoundRect(x + 6, y + 8, bw, bh, 22, 22);
+
+                // tarjeta
+                g2.setComposite(AlphaComposite.SrcOver.derive(0.92f * alpha));
+                g2.setColor(new Color(25, 28, 34, 235));
+                g2.fillRoundRect(x, y, bw, bh, 22, 22);
+
+                // borde
+                g2.setComposite(AlphaComposite.SrcOver.derive(0.95f * alpha));
+                g2.setColor(main);
+                g2.setStroke(new BasicStroke(3f));
+                g2.drawRoundRect(x, y, bw, bh, 22, 22);
+
+                // textos
+                g2.setComposite(AlphaComposite.SrcOver.derive(alpha));
+                g2.setColor(new Color(240, 244, 248));
+                Font fTitle = getFont().deriveFont(Font.BOLD, 26f);
+                Font fSub = getFont().deriveFont(Font.PLAIN, 16f);
+
+                g2.setFont(fTitle);
+                FontMetrics fmT = g2.getFontMetrics();
+                int tx = x + (bw - fmT.stringWidth(title)) / 2;
+                int ty = y + 60;
+                g2.drawString(title, tx, ty);
+
+                g2.setFont(fSub);
+                FontMetrics fmS = g2.getFontMetrics();
+                int sx = x + (bw - fmS.stringWidth(subtitle)) / 2;
+                int sy = y + 100;
+                g2.drawString(subtitle, sx, sy);
+
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            long dt = (int) (System.currentTimeMillis() - t0);
+            switch (phase) {
+                case 1: // fade in
+                    if (dt >= FADE_IN) {
+                        alpha = 1f; phase = 2; t0 = System.currentTimeMillis();
+                    } else {
+                        alpha = dt / (float) FADE_IN;
+                    }
+                    break;
+                case 2: // hold
+                    alpha = 1f;
+                    if (dt >= HOLD) { phase = 3; t0 = System.currentTimeMillis(); }
+                    break;
+                case 3: // fade out
+                    if (dt >= FADE_OUT) {
+                        alpha = 0f; phase = 0; timer.stop(); setVisible(false);
+                    } else {
+                        alpha = 1f - dt / (float) FADE_OUT;
+                    }
+                    break;
+                default:
+                    timer.stop(); setVisible(false); alpha = 0f;
+            }
+            repaint();
+        }
+    }
+
+    /** Muestra el banner redondeado con fade para el ganador de la ronda. */
+    private void showRoundBanner(Winner w, String reason) {
+        banner.showRoundResult(w, reason);
     }
 }
