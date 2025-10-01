@@ -54,8 +54,8 @@ public class DuelFrame extends JFrame {
     private final JList<String> historyList = new JList<>(historyModel);
 
     // Bordes (para resaltar ganador)
-    private TitledBorder tBorderPlayer = BorderFactory.createTitledBorder("Jugador");
-    private TitledBorder tBorderCpu = BorderFactory.createTitledBorder("CPU");
+    private final TitledBorder tBorderPlayer = BorderFactory.createTitledBorder("Jugador");
+    private final TitledBorder tBorderCpu = BorderFactory.createTitledBorder("CPU");
 
     // Overlay de banner (glass pane)
     private final RoundBannerOverlay banner = new RoundBannerOverlay();
@@ -289,7 +289,7 @@ public class DuelFrame extends JFrame {
 
                     highlightWinner(rr.winner);
 
-                    // === NUEVO: Banner grande superpuesto ===
+                    // Banner grande de RONDA
                     showRoundBanner(rr.winner, rr.reason);
 
                     if (duel.isOver()) {
@@ -298,7 +298,14 @@ public class DuelFrame extends JFrame {
                             setStatus("🏆 ¡Has ganado el duelo best-of-3! Pulsa 'Nuevo duelo' para jugar otra vez.");
                         } else if (mw == Winner.CPU) {
                             setStatus("🤖 La CPU ganó el duelo best-of-3. Pulsa 'Nuevo duelo' para reintentar.");
+                        } else {
+                            setStatus("Duelo finalizado.");
                         }
+
+                        // Banner grande de COMBATE (con dim del fondo)
+                        showMatchBanner(mw);
+
+                        // Deshabilitar mano
                         for (Component comp : panelHand.getComponents()) {
                             if (comp instanceof JButton) comp.setEnabled(false);
                         }
@@ -440,9 +447,13 @@ public class DuelFrame extends JFrame {
 
     /**
      * GlassPane que pinta un banner central con fade-in/out.
-     * Uso: banner.showRoundResult("titulo", "subtitulo", colorPrincipal)
+     * Soporta 2 modos: ROUND (aviso de ronda) y MATCH (victoria del combate).
      */
     private class RoundBannerOverlay extends JComponent implements ActionListener {
+
+        private enum Kind { ROUND, MATCH }
+
+        private Kind kind = Kind.ROUND;
         private String title = "";
         private String subtitle = "";
         private Color main = new Color(46, 204, 113); // verde por defecto
@@ -450,10 +461,10 @@ public class DuelFrame extends JFrame {
         private int phase = 0; // 0=idle,1=in,2=hold,3=out
         private final Timer timer = new Timer(16, this); // ~60 FPS
 
-        // tiempos en ms
-        private final int FADE_IN = 180;
-        private final int HOLD = 1050;
-        private final int FADE_OUT = 220;
+        // tiempos (ajustables por modo)
+        private int FADE_IN = 180;
+        private int HOLD = 1050;
+        private int FADE_OUT = 220;
 
         private long t0;
 
@@ -463,6 +474,8 @@ public class DuelFrame extends JFrame {
         }
 
         void showRoundResult(Winner w, String reason) {
+            kind = Kind.ROUND;
+            FADE_IN = 180; HOLD = 1050; FADE_OUT = 220;
             if (w == Winner.PLAYER) {
                 this.title = "¡Ronda para el Jugador!";
                 this.main = new Color(46, 204, 113);
@@ -471,6 +484,24 @@ public class DuelFrame extends JFrame {
                 this.main = new Color(231, 76, 60);
             }
             this.subtitle = reason != null ? reason : "";
+            startAnim();
+        }
+
+        void showMatchResult(Winner w) {
+            kind = Kind.MATCH;
+            FADE_IN = 220; HOLD = 1600; FADE_OUT = 280;
+            if (w == Winner.PLAYER) {
+                this.title = "¡Victoria del Jugador!";
+                this.main = new Color(46, 204, 113);
+            } else {
+                this.title = "¡Victoria de la CPU!";
+                this.main = new Color(231, 76, 60);
+            }
+            this.subtitle = "Ganó 2 de 3 rondas.";
+            startAnim();
+        }
+
+        private void startAnim() {
             alpha = 0f; phase = 1; t0 = System.currentTimeMillis();
             setVisible(true);
             timer.start();
@@ -487,10 +518,16 @@ public class DuelFrame extends JFrame {
                 int W = getWidth();
                 int H = getHeight();
 
-                // Fondo NO oscurecido para no “romper” la vista; solo banner central.
-                // Dibujar tarjeta central
-                int bw = 620;
-                int bh = 150;
+                // En MATCH oscurecemos todo el fondo suavemente
+                if (kind == Kind.MATCH) {
+                    g2.setComposite(AlphaComposite.SrcOver.derive(0.35f * alpha));
+                    g2.setColor(Color.BLACK);
+                    g2.fillRect(0, 0, W, H);
+                }
+
+                // Dimensiones del banner (más grande en MATCH)
+                int bw = (kind == Kind.MATCH) ? 720 : 620;
+                int bh = (kind == Kind.MATCH) ? 180 : 150;
                 int x = (W - bw) / 2;
                 int y = (H - bh) / 2;
 
@@ -513,19 +550,19 @@ public class DuelFrame extends JFrame {
                 // textos
                 g2.setComposite(AlphaComposite.SrcOver.derive(alpha));
                 g2.setColor(new Color(240, 244, 248));
-                Font fTitle = getFont().deriveFont(Font.BOLD, 26f);
-                Font fSub = getFont().deriveFont(Font.PLAIN, 16f);
+                Font fTitle = getFont().deriveFont(Font.BOLD, (kind == Kind.MATCH) ? 30f : 26f);
+                Font fSub   = getFont().deriveFont(Font.PLAIN, (kind == Kind.MATCH) ? 18f : 16f);
 
                 g2.setFont(fTitle);
                 FontMetrics fmT = g2.getFontMetrics();
                 int tx = x + (bw - fmT.stringWidth(title)) / 2;
-                int ty = y + 60;
+                int ty = y + (kind == Kind.MATCH ? 70 : 60);
                 g2.drawString(title, tx, ty);
 
                 g2.setFont(fSub);
                 FontMetrics fmS = g2.getFontMetrics();
                 int sx = x + (bw - fmS.stringWidth(subtitle)) / 2;
-                int sy = y + 100;
+                int sy = y + (kind == Kind.MATCH ? 112 : 100);
                 g2.drawString(subtitle, sx, sy);
 
             } finally {
@@ -538,11 +575,8 @@ public class DuelFrame extends JFrame {
             long dt = (int) (System.currentTimeMillis() - t0);
             switch (phase) {
                 case 1: // fade in
-                    if (dt >= FADE_IN) {
-                        alpha = 1f; phase = 2; t0 = System.currentTimeMillis();
-                    } else {
-                        alpha = dt / (float) FADE_IN;
-                    }
+                    if (dt >= FADE_IN) { alpha = 1f; phase = 2; t0 = System.currentTimeMillis(); }
+                    else alpha = dt / (float) FADE_IN;
                     break;
                 case 2: // hold
                     alpha = 1f;
@@ -565,5 +599,10 @@ public class DuelFrame extends JFrame {
     /** Muestra el banner redondeado con fade para el ganador de la ronda. */
     private void showRoundBanner(Winner w, String reason) {
         banner.showRoundResult(w, reason);
+    }
+
+    /** Muestra el banner de victoria del combate (dim de fondo + tipografía mayor). */
+    private void showMatchBanner(Winner w) {
+        banner.showMatchResult(w);
     }
 }
