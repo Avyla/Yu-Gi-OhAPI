@@ -132,3 +132,9 @@ util/     -> Cache de imágenes y utilidades
 
 Proyecto con fines educativos. Las imágenes y marcas pertenecen a sus respectivos dueños (YGOPRODeck / Konami).  
 Consulta los términos de uso de **YGOPRODeck API** antes de redistribuir.
+
+
+---
+## Colaboradores: 
+- Andres Esteban Lopez (2266055)
+- Eliam Antonio Avila (2266372)
